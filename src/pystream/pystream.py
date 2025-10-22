@@ -13,6 +13,25 @@ Usage:
      [--log-file path] [--log-level INFO]
 """
 
+"""
+pystream -> visualizzatore e processore di dati EPICS NTNDArray:  con la possibilità di applicare plugin e pipeline di elaborazione. Senza i JSON di configurazione, vedi i dati grezzi in tempo reale,
+prende dati scientifici in tempo reale da un canale PV (Process Variable) di EPICS e li mostra/analizza usando Python e PyQtGraph
+
+Lanciando pystream --pv YOUR:NTNDARRAY:PV
+MI COLLEGO AL pv CHE DEVE ESSERE DI TIPO ARRAY NTNDArray, che è lo standard EPICS per immagini o array numerici in tempo reale.
+
+pystream può applicare pipeline di elaborazione ai dati in arrivo, esse possono essere definite da 
+processors.json
+si possono avere ( Calcolo di istogrammi Filtri di immagine Analisi statistica Salvataggio dei dati su file), se non trova il file json mostra dati raw
+
+PyQtGraph, che è una libreria Python per grafici e immagini in tempo reale ( immagine o array in una finestrainterattiva
+
+Il programma legge anche viewer_config.json nella tua home per impostazioni personali 
+
+"""
+
+
+
 import argparse
 import math
 import time
@@ -49,15 +68,24 @@ except Exception:
 
 
 # ----------------------- Config I/O -----------------------
-def _app_dir() -> str:
-    config_dir = os.path.join(os.path.expanduser("~"), ".pystream")
+# _app_dir() → crea la casa dei file di configurazione.
+# _cfg_path() → trova l’indirizzo preciso del file.
+# _load_config() → legge i ricordi.
+#_save_config() → salva i nuovi ricordi senza corrompere
+#-----------------------------------------------------------
+
+def _app_dir() -> str:                                                #creare (se non esiste) una cartella nascosta chiamata .pystream nella tua home director
+    config_dir = os.path.join(os.path.expanduser("~"), ".pystream")   # → trova la tua home
     os.makedirs(config_dir, exist_ok=True)
     return config_dir
 
-def _cfg_path(name: str = "viewer_config.json") -> str:
+def _cfg_path(name: str = "viewer_config.json") -> str:    #costruisce il percorso completo di un file di configurazione dentro .pystream
     return os.path.join(_app_dir(), name)
-
-def _load_config(defaults: Optional[Dict] = None, filename: str = "viewer_config.json") -> Dict:
+#_load_config e _save_config leggono e salvano preferenze dell’utente (viewer_config.json) nella home directory sotto .pystream. 
+# Serve per ricordare PV recenti, impostazioni di visualizzazione, ecc.
+def _load_config(defaults: Optional[Dict] = None, filename: str = "viewer_config.json") -> Dict:  
+  # legge il file JSON di configurazione, costruisce il percorso con il nome del file .
+  # apre e carica dati , se vi sono chiavi mancanti , le riempie con i valori di default . Se file non esiste warning 
     if defaults is None:
         defaults = {}
     path = _cfg_path(filename)
@@ -73,6 +101,9 @@ def _load_config(defaults: Optional[Dict] = None, filename: str = "viewer_config
         return dict(defaults)
 
 def _save_config(data: dict, filename: str = "viewer_config.json") -> None:
+#salva la configurazione in modo sicuro  e usa os.replace() per sostituire   il file vecchio con quello nuovo
+# Se fallisce, elimina il temporaneo e registra un errore nei log
+  
     path = _cfg_path(filename)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".cfg.", dir=os.path.dirname(path))
@@ -94,8 +125,19 @@ def _save_config(data: dict, filename: str = "viewer_config.json") -> None:
 
 
 # ----------------------- Plugin pipeline -----------------------
+# cerca un modulo procplug.py,
+# lo importa dinamicamente,
+# legge un file di configurazione JSON con l’elenco dei processori,
+# costruisce la pipeline,
+# la mette nella variabile globale PIPE
+
+# ---------------------------------------------------------------
+
 PIPE = None
 def _init_pipeline(proc_config_path: Optional[str]):
+#_init_pipeline() riesce a caricare dei moduli di elaborazione, PIPE diventa un oggetto del tipo ProcessorPipeline, contenente una lista di “processor”, 
+# Serve a inizializzare la pipeline dei plugin, se l’utente ha fornito un file di configurazione (es.json) se non e' specificato non carica pipeline 
+  
     global PIPE
     if not proc_config_path:
         if LOGGER: LOGGER.info("[Plugins] No proc_config path provided; pipeline disabled.")
@@ -108,7 +150,10 @@ def _init_pipeline(proc_config_path: Optional[str]):
             if LOGGER: LOGGER.warning("[Plugins] procplug.py not found")
             PIPE = None
             return
-
+#Cerca nella directory del programma un file chiamato procplug.py
+#Questo file deve contenere una classe ProcessorPipeline — cioè la definizione del sistema di plugin
+#succesivamente carica a runtime un modulo Python da un file, anche se non è installato nel path standard.
+      
         spec = importlib.util.spec_from_file_location("procplug", procplug_path)
         mod = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
@@ -126,6 +171,10 @@ def _init_pipeline(proc_config_path: Optional[str]):
 
 
 # ----------------------- NTNDArray reshape -----------------------
+#Converte gli NTNDArray da PVAccess in array NumPy con dimensioni e modalità colore corrette.
+#Supporta immagini 2D, 3D e conversione RGB → scala di grigi se necessario.
+
+
 def reshape_ntnda(ntnda) -> Tuple[int, np.ndarray, int, int, Optional[int], int, str]:
     """Returns: (imageId, image, nx, ny, nz, colorMode, fieldKey)"""
     if _HAS_ADU:
@@ -245,6 +294,25 @@ class NtndaSubscriber:
 
 
 # ----------------------- PyQtGraph Viewer App -----------------------
+
+""" Funzioni principali:
+
+Costruisce l’interfaccia con PyQt5:Controlli PV, pause, zoom, flip, transpose. ROI manager e statistiche ROI.Crosshair interattivo.
+Controllo flat-field per correzioni di illuminazione.Istogramma e slider di contrasto.Registrazione video in TIFF stack.
+
+_update_image_slot:Applica trasformazioni (flip, transpose, flat-field).Mostra immagine su ImageView.Aggiorna crosshair e ROI.
+Calcola FPS istantanei.Aggiorna istogramma (con throttling).
+
+Controlli Flat-field:_capture_flat, _load_flat, _save_flat, _clear_flat.
+
+Registrazione TIFF:_toggle_recording salva gli array in un multi-page TIFF.
+
+Eventi mouse:Crosshair segue il mouse e mostra posizione + valore pixel.
+"""
+
+
+
+
 class PvViewerApp(QtWidgets.QMainWindow):
     image_ready = QtCore.pyqtSignal(int, np.ndarray, float)
     
@@ -1326,7 +1394,7 @@ def main():
     args = ap.parse_args()
     
     # Logger
-    LOGGER = setup_custom_logger(
+    LOGGER = setup_custom_logger(    #logger con colore e opzioni console/file def attraverso il modulo logger.py
         name="pyqtgraph_viewer",
         lfname=args.log_file,
         stream_to_console=True,
