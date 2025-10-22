@@ -5,6 +5,17 @@ import importlib.util
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+""" procplug.py e un JSON di configurazione:
+
+_init_pipeline carica dinamicamente dei “processor” che possono trasformare le immagini prima di mostrarle.
+
+Se non ci sono plugin, la pipeline viene ignorata.
+
+
+"""
+
+
+
 @dataclass
 class ProcSpec:
     name: str
