@@ -1,6 +1,18 @@
 import logging
 import traceback
 
+
+""" 
+logger.py definisce:
+
+    setup_custom_logger → logger con colore e opzioni console/file.
+
+    log_exception → per loggare eccezioni con stack trace completo.
+
+
+
+"""
+
 __all__ = ['setup_custom_logger', 'log_exception', 'ColoredLogFormatter'] + logging.__all__
 
 def log_exception(logger, err, fmt="%s"):
