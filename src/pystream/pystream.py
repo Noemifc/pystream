@@ -235,6 +235,19 @@ def reshape_ntnda(ntnda) -> Tuple[int, np.ndarray, int, int, Optional[int], int,
 
 
 # ----------------------- PVA subscriber -----------------------
+
+# È un subscriber, cioè un “ascoltatore” collegato a un canale PVAccess (pva.Channel) che riceve immagini in tempo reale
+#quando si crea un NtndaSubscriber, devi dirgli due cose:
+#pv_name: il nome del PV a cui connetterti (es. "CAMERA:NTNDARRAY").
+#out_queue: una coda (queue.Queue) dove depositare i frame ricevuti.
+
+#Poi:
+#self.chan crea un oggetto Channel di PVAccess: è la connessione diretta al PV.
+#self.subscribed tiene traccia dello stato (iscritto o no).
+#_lock serve a evitare che più thread cambino contemporaneamente lo stato di sottoscrizione.
+
+
+
 class NtndaSubscriber:
     def __init__(self, pv_name: str, out_queue: queue.Queue):
         self.pv_name = pv_name
@@ -243,16 +256,17 @@ class NtndaSubscriber:
         self.subscribed = False
         self._lock = threading.Lock()
 
-    def _callback(self, pv: pva.PvObject):
+    def _callback(self, pv: pva.PvObject):  # la funzione chiamata ogni volta che arriva un nuovo frame dal server EPICS
         try:
-            uid, img, nx, ny, nz, cm, key = reshape_ntnda(pv)
+            uid, img, nx, ny, nz, cm, key = reshape_ntnda(pv)   # ims sono array numpy con i pixel , dimensioni, cm e' la colormap ., univoca identificazione frame, chiave PVAccess per metadati aggiuntivi
             if img is None:
                 return
             # Convert RGB to grayscale
             if img.ndim == 3 and img.shape[2] in (3, 4):
                 img = (0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]).astype(np.float32, copy=False)
 
-            # Latest-only queue
+            # Latest-only queue : Svuota la coda da eventuali frame vecchi, così resta solo l’ultimo disponibile.
+            # È un trucco per evitare backlog: se l’UI non riesce a star dietro al flusso, non accumula frame inutili.
             try:
                 while True:
                     self.out_q.get_nowait()
@@ -273,7 +287,7 @@ class NtndaSubscriber:
             self.chan.startMonitor()
             self.subscribed = True
 
-    def stop(self):
+    def stop(self):                #interrompe la sottoscrizione
         with self._lock:
             if not self.subscribed:
                 return
