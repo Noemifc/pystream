@@ -11,11 +11,23 @@ _init_pipeline carica dinamicamente dei “processor” che possono trasformare 
 
 Se non ci sono plugin, la pipeline viene ignorata.
 
+crea una pipeline di trasformazioni per immagini, cioè una catena di piccoli “moduli”
+che modificano le immagini in sequenza.
+
+procplug.py :
+
+- Legge una lista di moduli (plugin) da un file JSON di configurazione.
+
+- Carica automaticamente questi moduli Python (process(img, meta, **params)).
+
+- Applica tutti i moduli in ordine a ogni immagine che arriva.
+
+- Aggiorna i moduli se cambi il file Python (hot-reload) senza riavviare tutto.
 
 """
 
 
-
+# singolo “processor” nella pipeline
 @dataclass
 class ProcSpec:
     name: str
@@ -33,6 +45,8 @@ class ProcessorPipeline:
     - Pipeline order & params are configured via JSON
     - Optional hot-reload of modules on file change
     """
+    #inizializza la pipeline, carica tutti i moduli
+
     def __init__(self, processors_dir: str, specs: List[ProcSpec], hot_reload: bool = True):
         self.processors_dir = processors_dir
         self.specs = specs
@@ -40,6 +54,7 @@ class ProcessorPipeline:
         self._mods: Dict[str, types.ModuleType] = {}
         self._mtimes: Dict[str, float] = {}
         self._load_all()
+# È un costruttore alternativo che legge la pipeline da un file JSON
 
     @classmethod
     def from_config(cls, config_path: str) -> "ProcessorPipeline":
@@ -58,6 +73,9 @@ class ProcessorPipeline:
             ))
         hot_reload = bool(cfg.get("hot_reload", True))
         return cls(processors_dir, specs, hot_reload=hot_reload)
+
+# Restituisce il percorso completo del modulo Python
+    # inizializza tutti i moduli Python della pipeline e prepara la classe a eseguire apply() sulle immagini.
 
     def _module_path(self, module: str) -> str:
         # Allow absolute / relative .py path or module name inside processors_dir

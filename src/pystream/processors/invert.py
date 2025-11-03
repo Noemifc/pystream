@@ -1,3 +1,5 @@
+"serve a invertire i valori di un’immagine usando NumPy"
+
 import numpy as np
 
 def process(img, meta=None):

@@ -1,3 +1,6 @@
+"serve a sommare una sequenza di immagini, frame in tempo reale e gestire questa somma tramite una piccola interfaccia grafica"
+
+
 # sum_frames.py
 import threading
 import time
